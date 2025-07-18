@@ -1,0 +1,82 @@
+---
+- name: Deploy custom nginx pages to cloud instances
+  hosts: all
+  become: yes
+  vars:
+    nginx_html_dir: /var/www/html
+    nginx_service: nginx
+  
+  tasks:
+    - name: Install nginx if not present
+      package:
+        name: nginx
+        state: present
+      
+    - name: Create nginx html directory
+      file:
+        path: "{{ nginx_html_dir }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+      
+    - name: Copy AWS index.html to AWS instances
+      copy:
+        src: index-aws.html
+        dest: "{{ nginx_html_dir }}/index.html"
+        owner: www-data
+        group: www-data
+        mode: '0644'
+        backup: yes
+      when: inventory_hostname in groups['aws'] or 'aws' in group_names
+      notify: restart nginx
+      
+    - name: Copy Azure index.html to Azure instances
+      copy:
+        src: index-azure.html
+        dest: "{{ nginx_html_dir }}/index.html"
+        owner: www-data
+        group: www-data
+        mode: '0644'
+        backup: yes
+      when: inventory_hostname in groups['azure'] or 'azure' in group_names
+      notify: restart nginx
+      
+    - name: Ensure nginx default site configuration is present
+      template:
+        src: default.conf.j2
+        dest: /etc/nginx/sites-available/default
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
+      notify: restart nginx
+      
+    - name: Enable nginx default site
+      file:
+        src: /etc/nginx/sites-available/default
+        dest: /etc/nginx/sites-enabled/default
+        state: link
+      notify: restart nginx
+      
+    - name: Test nginx configuration
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+      
+    - name: Start and enable nginx service
+      systemd:
+        name: "{{ nginx_service }}"
+        state: started
+        enabled: yes
+        
+    - name: Ensure nginx is running
+      systemd:
+        name: "{{ nginx_service }}"
+        state: started
+        
+  handlers:
+    - name: restart nginx
+      systemd:
+        name: "{{ nginx_service }}"
+        state: restarted
